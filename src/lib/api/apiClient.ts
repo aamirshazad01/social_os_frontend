@@ -7,7 +7,7 @@ const apiClient: AxiosInstance = axios.create({
     'Accept': 'application/json',
   },
   timeout: 30000,
-  withCredentials: true, // Enable credentials for CORS
+  withCredentials: false, // Disable credentials when backend uses wildcard CORS
 });
 
 // Add request interceptor to handle CORS issues
