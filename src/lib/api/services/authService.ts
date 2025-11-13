@@ -1,5 +1,6 @@
 import apiClient from '../apiClient';
 import { handleApiError } from '../errorHandler';
+import { AxiosError } from 'axios';
 
 interface LoginRequest {
   email: string;
@@ -27,9 +28,27 @@ interface RegisterRequest {
 export const authService = {
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
-      const response = await apiClient.post<LoginResponse>('/auth/login', credentials);
+      console.log('🔐 Auth Service: Attempting login with:', { email: credentials.email });
+      console.log('🌐 API Base URL:', process.env.NEXT_PUBLIC_API_URL);
+      
+      // Temporary CORS workaround - add mode: 'cors' explicitly
+      const response = await apiClient.post<LoginResponse>('/auth/login', credentials, {
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      console.log('✅ Auth Service: Login successful');
       return response.data;
     } catch (error) {
+      console.error('❌ Auth Service: Login failed:', error);
+      if (error instanceof AxiosError) {
+        console.error('❌ Error details:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          data: error.response?.data,
+          headers: error.response?.headers
+        });
+      }
       throw handleApiError(error);
     }
   },

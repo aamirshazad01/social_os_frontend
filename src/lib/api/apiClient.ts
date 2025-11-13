@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
 
 const apiClient: AxiosInstance = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1',
+  baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://social-os-backend-6.onrender.com/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
@@ -12,6 +12,14 @@ const apiClient: AxiosInstance = axios.create({
 // Request interceptor - Add auth token to all requests
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Debug logging
+    console.log('🚀 API Request:', {
+      method: config.method?.toUpperCase(),
+      url: config.url,
+      baseURL: config.baseURL,
+      fullURL: `${config.baseURL}${config.url}`
+    });
+    
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('auth_token');
       if (token && config.headers) {
@@ -27,8 +35,23 @@ apiClient.interceptors.request.use(
 
 // Response interceptor - Handle token refresh and errors
 apiClient.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    console.log('✅ API Response:', {
+      status: response.status,
+      url: response.config.url,
+      data: response.data
+    });
+    return response;
+  },
   async (error: AxiosError) => {
+    console.error('❌ API Error:', {
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      url: error.config?.url,
+      message: error.message,
+      data: error.response?.data
+    });
+    
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
     // Handle 401 Unauthorized - Token expired
