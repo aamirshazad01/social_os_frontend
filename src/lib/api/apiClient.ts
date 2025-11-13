@@ -4,9 +4,10 @@ const apiClient: AxiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://social-os-backend-6.onrender.com/api/v1',
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',
   },
   timeout: 30000,
-  withCredentials: false,
+  withCredentials: true, // Enable credentials for CORS
 });
 
 // Add request interceptor to handle CORS issues
