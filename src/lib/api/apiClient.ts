@@ -9,6 +9,26 @@ const apiClient: AxiosInstance = axios.create({
   withCredentials: false,
 });
 
+// Add request interceptor to handle CORS issues
+apiClient.interceptors.request.use(
+  (config) => {
+    // Log the full request URL for debugging
+    console.log('🚀 Making request to:', `${config.baseURL}${config.url}`);
+    
+    // Ensure proper headers for CORS
+    if (config.headers) {
+      config.headers['Accept'] = 'application/json';
+      config.headers['Content-Type'] = 'application/json';
+    }
+    
+    return config;
+  },
+  (error) => {
+    console.error('❌ Request interceptor error:', error);
+    return Promise.reject(error);
+  }
+);
+
 // Request interceptor - Add auth token to all requests
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
