@@ -56,7 +56,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
       const response = await authService.register({ email, password, full_name: fullName })
-      setAuth(response.user, response.access_token, response.refresh_token)
+      setAuth(response.user, response.access_token, response.refresh_token, response.role, response.workspace_id)
+      setWorkspaceId(response.workspace_id || null)
+      setUserRole(response.role || null)
       router.push('/')
       return { error: null }
     } catch (error) {
@@ -67,7 +69,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       const response = await authService.login({ email, password })
-      setAuth(response.user, response.access_token, response.refresh_token)
+      setAuth(response.user, response.access_token, response.refresh_token, response.role, response.workspace_id)
+      setWorkspaceId(response.workspace_id || null)
+      setUserRole(response.role || null)
       router.push('/')
       return { error: null }
     } catch (error) {

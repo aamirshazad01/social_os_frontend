@@ -13,9 +13,6 @@ const apiClient: AxiosInstance = axios.create({
 // Add request interceptor to handle CORS issues
 apiClient.interceptors.request.use(
   (config) => {
-    // Log the full request URL for debugging
-    console.log('🚀 Making request to:', `${config.baseURL}${config.url}`);
-    
     // Ensure proper headers for CORS
     if (config.headers) {
       config.headers['Accept'] = 'application/json';
@@ -25,7 +22,9 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('❌ Request interceptor error:', error);
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Request interceptor error:', error);
+    }
     return Promise.reject(error);
   }
 );
@@ -33,14 +32,6 @@ apiClient.interceptors.request.use(
 // Request interceptor - Add auth token to all requests
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    // Debug logging
-    console.log('🚀 API Request:', {
-      method: config.method?.toUpperCase(),
-      url: config.url,
-      baseURL: config.baseURL,
-      fullURL: `${config.baseURL}${config.url}`
-    });
-    
     if (typeof window !== 'undefined') {
       const token = localStorage.getItem('auth_token');
       if (token && config.headers) {
@@ -57,21 +48,17 @@ apiClient.interceptors.request.use(
 // Response interceptor - Handle token refresh and errors
 apiClient.interceptors.response.use(
   (response) => {
-    console.log('✅ API Response:', {
-      status: response.status,
-      url: response.config.url,
-      data: response.data
-    });
     return response;
   },
   async (error: AxiosError) => {
-    console.error('❌ API Error:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      url: error.config?.url,
-      message: error.message,
-      data: error.response?.data
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.error('API Error:', {
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        url: error.config?.url,
+        message: error.message,
+      });
+    }
     
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
@@ -82,8 +69,8 @@ apiClient.interceptors.response.use(
       try {
         const refreshToken = localStorage.getItem('refresh_token');
         if (refreshToken) {
-          const response = await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/auth/refresh`,
+          const response = await apiClient.post(
+            '/auth/refresh',
             { refresh_token: refreshToken }
           );
 
