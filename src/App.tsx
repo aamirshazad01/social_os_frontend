@@ -559,34 +559,44 @@ const AppContent: React.FC = () => {
         </button>
     );
 
+    // Memoize view props to prevent unnecessary re-renders
+    const viewProps = useMemo(() => ({
+        posts,
+        onUpdatePost: updatePost,
+        onDeletePost: deletePost,
+        isApiKeyReady,
+        onSelectKey: handleSelectKey,
+        resetApiKeyStatus: () => setIsApiKeyReady(false),
+        connectedAccounts,
+    }), [posts, updatePost, deletePost, isApiKeyReady, handleSelectKey, connectedAccounts]);
+
+    // Render all views but only show the active one to preserve state
     const renderViewContent = () => {
-        const viewProps = {
-            posts,
-            onUpdatePost: updatePost,
-            onDeletePost: deletePost,
-            isApiKeyReady,
-            onSelectKey: handleSelectKey,
-            resetApiKeyStatus: () => setIsApiKeyReady(false),
-            connectedAccounts,
-        };
-        switch (activeView) {
-            case 'create':
-                return <ContentStrategistView onPostCreated={addPost} />;
-            case 'manage':
-                return <ManagePosts {...viewProps} />;
-            case 'history':
-                return <PublishedView posts={posts} onUpdatePost={updatePost} onDeletePost={deletePost} onPublishPost={publishPost} connectedAccounts={connectedAccounts} />;
-            case 'analytics':
-                return <AnalyticsDashboard posts={posts} />;
-            case 'media':
-                return <MediaLibrary />;
-            case 'repurpose':
-                return <ContentRepurposer onPostsCreated={addMultiplePosts} />;
-            case 'library':
-                return <LibraryView items={libraryItems} onDeleteItem={deleteLibraryItem} onRestoreItem={restoreLibraryItem} />;
-            default:
-                return null;
-        }
+        return (
+            <>
+                <div style={{ display: activeView === 'create' ? 'block' : 'none' }} className="h-full">
+                    <ContentStrategistView onPostCreated={addPost} />
+                </div>
+                <div style={{ display: activeView === 'manage' ? 'block' : 'none' }} className="h-full">
+                    <ManagePosts {...viewProps} />
+                </div>
+                <div style={{ display: activeView === 'history' ? 'block' : 'none' }} className="h-full">
+                    <PublishedView posts={posts} onUpdatePost={updatePost} onDeletePost={deletePost} onPublishPost={publishPost} connectedAccounts={connectedAccounts} />
+                </div>
+                <div style={{ display: activeView === 'analytics' ? 'block' : 'none' }} className="h-full">
+                    <AnalyticsDashboard posts={posts} />
+                </div>
+                <div style={{ display: activeView === 'media' ? 'block' : 'none' }} className="h-full">
+                    <MediaLibrary />
+                </div>
+                <div style={{ display: activeView === 'repurpose' ? 'block' : 'none' }} className="h-full">
+                    <ContentRepurposer onPostsCreated={addMultiplePosts} />
+                </div>
+                <div style={{ display: activeView === 'library' ? 'block' : 'none' }} className="h-full">
+                    <LibraryView items={libraryItems} onDeleteItem={deleteLibraryItem} onRestoreItem={restoreLibraryItem} />
+                </div>
+            </>
+        );
     };
 
     return (

@@ -88,8 +88,9 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isHistoryVisible]);
 
-    // Prevent unnecessary reloads when tab visibility changes
+    // Track component visibility to optimize performance
     const isVisibleRef = useRef(true);
+    const containerRef = useRef<HTMLDivElement>(null);
     
     useEffect(() => {
         const handleVisibilityChange = () => {
@@ -467,7 +468,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     });
 
     return (
-        <div className="h-full flex flex-row gap-4">
+        <div ref={containerRef} className="h-full flex flex-row gap-4">
             {isHistoryVisible && (
                 <div className="w-64 bg-white rounded-xl shadow-md flex flex-col h-full border border-gray-200">
                     <div className="p-3 border-b border-gray-200">
