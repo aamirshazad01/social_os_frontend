@@ -42,9 +42,9 @@ export const platformService = {
 
   async getCredentialStatus(workspaceId?: string): Promise<CredentialStatus[]> {
     try {
-      const params = workspaceId ? { workspace_id: workspaceId } : {};
-      const response = await apiClient.get<CredentialStatus[]>('/credentials/status', { params });
-      return response.data;
+      // Workspace is derived from the Supabase access token on the backend
+      const response = await apiClient.get<ApiResponse<CredentialStatus[]>>('/platforms/credentials/status');
+      return response.data.data || [];
     } catch (error) {
       throw handleApiError(error);
     }
@@ -52,8 +52,8 @@ export const platformService = {
 
   async disconnectPlatform(platform: string, workspaceId?: string): Promise<void> {
     try {
-      const params = workspaceId ? { workspace_id: workspaceId } : {};
-      await apiClient.delete(`/credentials/${platform}/disconnect`, { params });
+      // Workspace is derived from the Supabase access token on the backend
+      await apiClient.delete<ApiResponse>(`/platforms/${platform}/disconnect`);
     } catch (error) {
       throw handleApiError(error);
     }

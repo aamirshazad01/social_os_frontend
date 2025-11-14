@@ -28,7 +28,7 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
   onClose,
   onInviteCreated,
 }) => {
-  const { workspaceId } = useAuth()
+  const { workspaceId, userRole } = useAuth()
   // Email invitation state
   const [email, setEmail] = useState('')
   const [role, setRole] = useState<UserRole>('editor')
@@ -151,7 +151,7 @@ export const InviteMemberModal: React.FC<InviteMemberModalProps> = ({
     }
   }
 
-  if (!isOpen) return null
+  if (!isOpen || userRole !== 'admin') return null
 
   return (
     <div

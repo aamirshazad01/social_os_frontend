@@ -7,12 +7,14 @@ import { Download, Trash2, Eye, X } from 'lucide-react';
 import { PlatformTemplateRenderer } from '../templates/PlatformTemplateRenderer';
 
 interface LibraryCardProps {
+    itemId: string;
     post: Post;
-    onDelete: (postId: string) => void;
+    onDelete: (itemId: string) => void | Promise<void>;
     onDownload: (post: Post) => void;
+    onRestore: () => void | Promise<void>;
 }
 
-const LibraryCard: React.FC<LibraryCardProps> = ({ post, onDelete, onDownload }) => {
+const LibraryCard: React.FC<LibraryCardProps> = ({ itemId, post, onDelete, onDownload, onRestore }) => {
     const [activePlatform, setActivePlatform] = useState<Platform>(post.platforms[0]);
     const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
@@ -50,7 +52,7 @@ const LibraryCard: React.FC<LibraryCardProps> = ({ post, onDelete, onDownload })
         if (window.confirm('Are you sure you want to delete this post from the library? This action cannot be undone.')) {
             setIsDeleting(true);
             try {
-                onDelete(post.id);
+                await onDelete(itemId);
             } finally {
                 setIsDeleting(false);
             }
@@ -154,6 +156,12 @@ const LibraryCard: React.FC<LibraryCardProps> = ({ post, onDelete, onDownload })
                     >
                         <Download className="w-4 h-4" />
                         Export
+                    </button>
+                    <button
+                        onClick={onRestore}
+                        className="flex-1 flex items-center justify-center gap-2 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-all font-medium text-sm shadow-md transform hover:scale-105 active:scale-95"
+                    >
+                        Restore
                     </button>
                     <button
                         onClick={handleDelete}

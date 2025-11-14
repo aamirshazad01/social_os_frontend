@@ -397,6 +397,8 @@ function detectPlatformFromError(errorCode: string): Platform | null {
   if (errorCode.includes('linkedin')) return 'linkedin'
   if (errorCode.includes('facebook')) return 'facebook'
   if (errorCode.includes('instagram')) return 'instagram'
+  if (errorCode.includes('tiktok')) return 'tiktok'
+  if (errorCode.includes('youtube')) return 'youtube'
   return null
 }
 

@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { getSupabaseClient } from '../supabaseClient';
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'https://social-os-backend-6.onrender.com/api/v1',
@@ -9,6 +10,9 @@ const apiClient: AxiosInstance = axios.create({
   timeout: 30000,
   withCredentials: false, // Disable credentials when backend uses wildcard CORS
 });
+
+// Supabase client (browser-only)
+const supabase = typeof window !== 'undefined' ? getSupabaseClient() : null;
 
 // Add request interceptor to handle CORS issues
 apiClient.interceptors.request.use(
@@ -29,13 +33,14 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Request interceptor - Add auth token to all requests
+// Request interceptor - Add Supabase access token to all requests
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('auth_token');
-      if (token && config.headers) {
-        config.headers.Authorization = `Bearer ${token}`;
+  async (config: InternalAxiosRequestConfig) => {
+    if (supabase && typeof window !== 'undefined') {
+      const { data } = await supabase.auth.getSession();
+      const accessToken = data.session?.access_token;
+      if (accessToken && config.headers) {
+        config.headers.Authorization = `Bearer ${accessToken}`;
       }
     }
     return config;
@@ -45,7 +50,7 @@ apiClient.interceptors.request.use(
   }
 );
 
-// Response interceptor - Handle token refresh and errors
+// Response interceptor - Handle errors (logging + basic 401 handling)
 apiClient.interceptors.response.use(
   (response) => {
     return response;
@@ -60,37 +65,9 @@ apiClient.interceptors.response.use(
       });
     }
     
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
-
-    // Handle 401 Unauthorized - Token expired
-    if (error.response?.status === 401 && !originalRequest._retry && typeof window !== 'undefined') {
-      originalRequest._retry = true;
-
-      try {
-        const refreshToken = localStorage.getItem('refresh_token');
-        if (refreshToken) {
-          const response = await apiClient.post(
-            '/auth/refresh',
-            { refresh_token: refreshToken }
-          );
-
-          const { access_token } = response.data;
-          localStorage.setItem('auth_token', access_token);
-
-          if (originalRequest.headers) {
-            originalRequest.headers.Authorization = `Bearer ${access_token}`;
-          }
-          return apiClient(originalRequest);
-        }
-      } catch (refreshError) {
-        // Refresh failed - clear tokens and redirect to login
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('refresh_token');
-        if (typeof window !== 'undefined') {
-          window.location.href = '/login';
-        }
-        return Promise.reject(refreshError);
-      }
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
+      // Unauthorized - redirect to login, Supabase client manages its own session/refresh
+      window.location.href = '/login';
     }
 
     return Promise.reject(error);

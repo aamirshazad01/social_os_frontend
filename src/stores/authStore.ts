@@ -10,13 +10,11 @@ interface User {
 
 interface AuthState {
   user: User | null;
-  token: string | null;
-  refreshToken: string | null;
   role: 'admin' | 'editor' | 'viewer' | null;
   workspaceId: string | null;
   isAuthenticated: boolean;
   
-  setAuth: (user: User, token: string, refreshToken: string, role?: 'admin' | 'editor' | 'viewer', workspaceId?: string) => void;
+  setAuth: (user: User, role?: 'admin' | 'editor' | 'viewer', workspaceId?: string) => void;
   clearAuth: () => void;
   updateUser: (user: Partial<User>) => void;
   setRole: (role: 'admin' | 'editor' | 'viewer' | null) => void;
@@ -26,26 +24,16 @@ export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
       user: null,
-      token: null,
-      refreshToken: null,
       role: null,
       workspaceId: null,
       isAuthenticated: false,
 
-      setAuth: (user, token, refreshToken, role, workspaceId) => {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('auth_token', token);
-          localStorage.setItem('refresh_token', refreshToken);
-        }
-        set({ user, token, refreshToken, role, workspaceId, isAuthenticated: true });
+      setAuth: (user, role, workspaceId) => {
+        set({ user, role: role ?? null, workspaceId: workspaceId ?? null, isAuthenticated: true });
       },
 
       clearAuth: () => {
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('auth_token');
-          localStorage.removeItem('refresh_token');
-        }
-        set({ user: null, token: null, refreshToken: null, role: null, workspaceId: null, isAuthenticated: false });
+        set({ user: null, role: null, workspaceId: null, isAuthenticated: false });
       },
 
       updateUser: (updates) =>

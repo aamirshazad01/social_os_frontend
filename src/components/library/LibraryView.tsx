@@ -1,30 +1,67 @@
 'use client'
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Post, Platform } from '../../types';
+import type { LibraryItem } from '../../lib/api/types';
 import FilterBar from '../ui/FilterBar';
 import LibraryCard from './LibraryCard';
-import { Download, Trash2, Archive, BarChart3, Loader2, Upload } from 'lucide-react';
+import { Download, Archive, BarChart3, Loader2, Upload } from 'lucide-react';
 
 interface LibraryViewProps {
-    posts: Post[];
-    onDeletePost: (postId: string) => void;
+    items: LibraryItem[];
+    onDeleteItem: (itemId: string) => Promise<void> | void;
+    onRestoreItem: (item: LibraryItem) => Promise<void> | void;
 }
 
-const LibraryView: React.FC<LibraryViewProps> = ({ posts, onDeletePost }) => {
+const LibraryView: React.FC<LibraryViewProps> = ({ items, onDeleteItem, onRestoreItem }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [platformFilter, setPlatformFilter] = useState<Platform | 'all'>('all');
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
 
-    // Filter published posts only
-    const publishedPosts = useMemo(() => {
-        return posts.filter(post => post.status === 'published');
-    }, [posts]);
+    // Map library items into displayable posts using stored post snapshot
+    const archivedPosts = useMemo(() => {
+        const result: { itemId: string; post: Post }[] = [];
+
+        for (const item of items) {
+            const storedPost = (item.content as any)?.post as Post | undefined;
+            if (!storedPost) {
+                // Fallback: build a minimal post from title/content
+                const fallbackPost: Post = {
+                    id: `library-${item.id}`,
+                    topic: item.title || 'Archived Post',
+                    platforms: [],
+                    content: (item.content as any) || {},
+                    status: 'published',
+                    createdAt: item.created_at,
+                    scheduledAt: undefined,
+                    publishedAt: item.created_at,
+                    generatedImage: undefined,
+                    generatedVideoUrl: undefined,
+                    isGeneratingImage: false,
+                    isGeneratingVideo: false,
+                    videoGenerationStatus: '',
+                    videoOperation: undefined,
+                } as Post;
+                result.push({ itemId: item.id, post: fallbackPost });
+            } else {
+                const normalizedPost: Post = {
+                    ...storedPost,
+                    status: 'published',
+                    publishedAt: storedPost.publishedAt || item.created_at,
+                    createdAt: storedPost.createdAt || item.created_at,
+                };
+                result.push({ itemId: item.id, post: normalizedPost });
+            }
+        }
+
+        return result;
+    }, [items]);
 
     // Apply filters
     const filteredPosts = useMemo(() => {
-        return publishedPosts
+        const postsOnly = archivedPosts.map(p => p.post);
+        return postsOnly
             .filter(post => {
                 const matchesSearch = post.topic.toLowerCase().includes(searchTerm.toLowerCase());
                 const matchesPlatform = platformFilter === 'all' || post.platforms.includes(platformFilter);
@@ -35,7 +72,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({ posts, onDeletePost }) => {
                 const dateB = new Date(b.publishedAt || b.createdAt).getTime();
                 return dateB - dateA;
             });
-    }, [publishedPosts, searchTerm, platformFilter]);
+    }, [archivedPosts, searchTerm, platformFilter]);
 
     // Calculate statistics
     const stats = useMemo(() => {
@@ -48,22 +85,22 @@ const LibraryView: React.FC<LibraryViewProps> = ({ posts, onDeletePost }) => {
             youtube: 0,
         };
 
-        publishedPosts.forEach(post => {
+        archivedPosts.forEach(({ post }) => {
             post.platforms.forEach(platform => {
                 platformCounts[platform]++;
             });
         });
 
-        const postsWithImages = publishedPosts.filter(p => p.generatedImage).length;
-        const postsWithVideos = publishedPosts.filter(p => p.generatedVideoUrl).length;
+        const postsWithImages = archivedPosts.filter(({ post }) => post.generatedImage).length;
+        const postsWithVideos = archivedPosts.filter(({ post }) => post.generatedVideoUrl).length;
 
         return {
-            totalPosts: publishedPosts.length,
+            totalPosts: archivedPosts.length,
             platformCounts,
             postsWithImages,
             postsWithVideos,
         };
-    }, [publishedPosts]);
+    }, [archivedPosts]);
 
     // Handle export all posts
     const handleExportAll = async () => {
@@ -162,7 +199,7 @@ const LibraryView: React.FC<LibraryViewProps> = ({ posts, onDeletePost }) => {
         }
     };
 
-    if (publishedPosts.length === 0) {
+    if (archivedPosts.length === 0) {
         return (
             <div className="text-center py-20 bg-white border-2 border-dashed border-gray-300 rounded-xl">
                 <Archive className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -265,14 +302,18 @@ const LibraryView: React.FC<LibraryViewProps> = ({ posts, onDeletePost }) => {
             {/* Posts Grid */}
             {filteredPosts.length > 0 ? (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    {filteredPosts.map(post => (
-                        <LibraryCard
-                            key={post.id}
-                            post={post}
-                            onDelete={onDeletePost}
-                            onDownload={handleExportPost}
-                        />
-                    ))}
+                    {archivedPosts
+                        .filter(({ post }) => filteredPosts.includes(post))
+                        .map(({ itemId, post }) => (
+                            <LibraryCard
+                                key={itemId}
+                                itemId={itemId}
+                                post={post}
+                                onDelete={onDeleteItem}
+                                onDownload={handleExportPost}
+                                onRestore={() => onRestoreItem(items.find(i => i.id === itemId)!)}
+                            />
+                        ))}
                 </div>
             ) : (
                 <div className="text-center py-12 bg-white border-2 border-dashed border-gray-300 rounded-xl">

@@ -55,9 +55,7 @@ export const workspaceService = {
 
   async getMembers(workspaceId: string): Promise<WorkspaceMember[]> {
     try {
-      const response = await apiClient.get<WorkspaceMember[]>('/members', {
-        params: { workspace_id: workspaceId },
-      });
+      const response = await apiClient.get<WorkspaceMember[]>('/members');
       return response.data;
     } catch (error) {
       throw handleApiError(error);
@@ -66,9 +64,7 @@ export const workspaceService = {
 
   async removeMember(userId: string, workspaceId: string): Promise<void> {
     try {
-      await apiClient.delete(`/members/${userId}`, {
-        params: { workspace_id: workspaceId },
-      });
+      await apiClient.delete(`/members/${userId}`);
     } catch (error) {
       throw handleApiError(error);
     }
@@ -76,10 +72,7 @@ export const workspaceService = {
 
   async updateMemberRole(userId: string, role: string, workspaceId: string): Promise<WorkspaceMember> {
     try {
-      const response = await apiClient.put<WorkspaceMember>(`/members/${userId}/role`, 
-        { role },
-        { params: { workspace_id: workspaceId } }
-      );
+      const response = await apiClient.put<WorkspaceMember>(`/members/${userId}/role`, { role });
       return response.data;
     } catch (error) {
       throw handleApiError(error);
@@ -88,10 +81,19 @@ export const workspaceService = {
 
   async inviteMember(workspaceId: string, inviteData: { email?: string; role: string; expiresInDays?: number }): Promise<any> {
     try {
-      const response = await apiClient.post<any>('/invites', {
-        ...inviteData,
-        workspace_id: workspaceId,
-      });
+      const payload: { email?: string; role: string; expires_in_days?: number } = {
+        role: inviteData.role,
+      };
+
+      if (inviteData.email) {
+        payload.email = inviteData.email;
+      }
+
+      if (typeof inviteData.expiresInDays === 'number') {
+        payload.expires_in_days = inviteData.expiresInDays;
+      }
+
+      const response = await apiClient.post<any>('/invites', payload);
       return response.data;
     } catch (error) {
       throw handleApiError(error);
@@ -100,9 +102,7 @@ export const workspaceService = {
 
   async getInvites(workspaceId: string): Promise<WorkspaceInvite[]> {
     try {
-      const response = await apiClient.get<WorkspaceInvite[]>('/invites', {
-        params: { workspace_id: workspaceId },
-      });
+      const response = await apiClient.get<WorkspaceInvite[]>('/invites');
       return response.data;
     } catch (error) {
       throw handleApiError(error);
@@ -111,9 +111,7 @@ export const workspaceService = {
 
   async deleteInvite(inviteId: string, workspaceId: string): Promise<void> {
     try {
-      await apiClient.delete(`/invites/${inviteId}`, {
-        params: { workspace_id: workspaceId },
-      });
+      await apiClient.delete(`/invites/${inviteId}`);
     } catch (error) {
       throw handleApiError(error);
     }

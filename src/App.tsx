@@ -14,6 +14,7 @@ import { NotificationProvider, useNotifications } from './contexts/NotificationC
 import { useAuth } from './contexts/AuthContext';
 import { autoSaveAIMedia } from './services/mediaService';
 import { postsService, platformService, aiService, libraryService } from './lib/api/services';
+import type { LibraryItem as ApiLibraryItem } from './lib/api/types';
 import { Edit3, LayoutGrid, BarChart3, History, Image, Sparkles, LogOut, User, Cog, Library, Users } from 'lucide-react';
 import LibraryView from './components/library/LibraryView';
 
@@ -24,6 +25,7 @@ const AppContent: React.FC = () => {
     const { user, signOut, userRole, workspaceId } = useAuth();
     const [activeView, setActiveView] = useState<View>('create');
     const [posts, setPosts] = useState<Post[]>([]);
+    const [libraryItems, setLibraryItems] = useState<ApiLibraryItem[]>([]);
     const [loading, setLoading] = useState(false);
     const dataLoadedRef = useRef(false);
     const currentWorkspaceRef = useRef<string | null>(null);
@@ -55,10 +57,11 @@ const AppContent: React.FC = () => {
                 console.log('[App] Loading data for workspace:', workspaceId);
                 setLoading(true);
 
-                // OPTIMIZATION: Fetch both resources in parallel
-                const [postsResponse, accountsStatus] = await Promise.all([
+                // OPTIMIZATION: Fetch resources in parallel
+                const [postsResponse, accountsStatus, libraryResponse] = await Promise.all([
                     postsService.getPosts(workspaceId),
-                    platformService.getCredentialStatus(workspaceId)
+                    platformService.getCredentialStatus(workspaceId),
+                    libraryService.getLibraryItems(workspaceId, { page: 1, page_size: 100, type: 'published_post' }),
                 ]);
 
                 // Transform API posts to local Post type
@@ -86,6 +89,7 @@ const AppContent: React.FC = () => {
                 // Update state in batch
                 setPosts(dbPosts);
                 setConnectedAccounts(accountsSummary);
+                setLibraryItems(libraryResponse.items || []);
                 
                 // Mark as loaded
                 dataLoadedRef.current = true;
@@ -379,12 +383,12 @@ const AppContent: React.FC = () => {
                 const contentByPlatform: Record<string, string> = {};
                 for (const platform of post.platforms) {
                     const rawContent = post.content[platform];
-                    const content = typeof rawContent === 'string' 
-                        ? rawContent 
-                        : typeof rawContent === 'object' 
+                    const content = typeof rawContent === 'string'
+                        ? rawContent
+                        : typeof rawContent === 'object'
                         ? (rawContent as any)?.description || ''
                         : '';
-                    
+
                     if (!content) {
                         addNotification('error', 'Validation Error', `No content for ${platform}`);
                         return;
@@ -405,25 +409,52 @@ const AppContent: React.FC = () => {
                     workspace_id: workspaceId,
                 });
 
-                // Archive to library via API
-                if (user && result.success) {
-                    await libraryService.createLibraryItem({
+                const payload: any = result.data || {};
+                const successful = typeof payload.successful === 'number' ? payload.successful : 0;
+                const failed = typeof payload.failed === 'number' ? payload.failed : 0;
+
+                if (!result.success || successful <= 0) {
+                    // Do not archive or delete if nothing actually published
+                    addNotification(
+                        'error',
+                        'Publishing Error',
+                        result.error || payload.message || 'Failed to publish post to any platform',
+                    );
+                    return;
+                }
+
+                // Archive to library via API using a published snapshot
+                if (user) {
+                    const publishedAt = new Date().toISOString();
+                    const publishedSnapshot: Post = {
+                        ...post,
+                        status: 'published',
+                        publishedAt,
+                    };
+
+                    const newItem = await libraryService.createLibraryItem({
                         workspace_id: workspaceId,
                         title: post.topic,
-                        content: { post, publishResult: result },
+                        content: { post: publishedSnapshot, publishResult: result },
                         type: 'published_post',
                     });
+
+                    setLibraryItems(prev => [newItem, ...prev]);
                 }
 
                 // Remove from posts table
                 await deletePost(post.id);
 
                 // Notify user
+                const summaryMessage = successful === post.platforms.length
+                    ? `Posted to ${successful} platforms`
+                    : `Posted to ${successful} platforms (${failed} failed)`;
+
                 addNotification(
                     'post_published',
                     'Post Published',
-                    `Posted to ${post.platforms.length} platforms`,
-                    post.id
+                    summaryMessage,
+                    post.id,
                 );
             } catch (error) {
                 console.error('Error publishing post:', error);
@@ -431,6 +462,68 @@ const AppContent: React.FC = () => {
             }
         },
         [user, workspaceId, deletePost, addNotification]
+    );
+
+    // Delete archived library item
+    const deleteLibraryItem = useCallback(
+        async (itemId: string) => {
+            // Optimistically remove from state
+            setLibraryItems(prev => prev.filter(item => item.id !== itemId));
+
+            try {
+                await libraryService.deleteLibraryItem(itemId);
+                addNotification('post_scheduled', 'Archived Post Deleted', 'Post has been removed from archive.');
+            } catch (error) {
+                console.error('Error deleting library item:', error);
+                addNotification('error', 'Delete Error', 'Failed to delete archived post');
+            }
+        },
+        [addNotification]
+    );
+
+    // Restore archived item back into Manage Posts as a draft
+    const restoreLibraryItem = useCallback(
+        async (item: ApiLibraryItem) => {
+            if (!workspaceId) {
+                addNotification('error', 'Error', 'No workspace selected');
+                return;
+            }
+
+            const storedPost = (item.content as any)?.post as Post | undefined;
+            if (!storedPost) {
+                addNotification('error', 'Restore Error', 'Archived item does not contain post data');
+                return;
+            }
+
+            try {
+                const created = await postsService.createPost({
+                    workspace_id: workspaceId,
+                    topic: storedPost.topic,
+                    platforms: storedPost.platforms,
+                    content: storedPost.content,
+                    status: 'draft',
+                    scheduled_at: undefined,
+                    campaign_id: storedPost.campaignId,
+                });
+
+                const newPost: Post = {
+                    ...storedPost,
+                    id: created.id,
+                    status: 'draft',
+                    createdAt: created.created_at,
+                    scheduledAt: created.scheduled_at,
+                    publishedAt: created.published_at,
+                };
+
+                setPosts(prev => [newPost, ...prev]);
+                setActiveView('manage');
+                addNotification('post_scheduled', 'Post Restored', `"${storedPost.topic}" restored to Manage Posts as draft.`);
+            } catch (error) {
+                console.error('Error restoring post from archive:', error);
+                addNotification('error', 'Restore Error', 'Failed to restore post from archive');
+            }
+        },
+        [workspaceId, addNotification]
     );
 
     useEffect(() => {
@@ -490,7 +583,7 @@ const AppContent: React.FC = () => {
             case 'repurpose':
                 return <ContentRepurposer onPostsCreated={addMultiplePosts} />;
             case 'library':
-                return <LibraryView posts={posts} onDeletePost={deletePost} />;
+                return <LibraryView items={libraryItems} onDeleteItem={deleteLibraryItem} onRestoreItem={restoreLibraryItem} />;
             default:
                 return null;
         }

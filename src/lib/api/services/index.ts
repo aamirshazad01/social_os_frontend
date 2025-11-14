@@ -1,4 +1,3 @@
-export * from './authService';
 export * from './postsService';
 export * from './aiService';
 export * from './workspaceService';
