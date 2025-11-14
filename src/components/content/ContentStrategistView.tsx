@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, FormEvent, useCallback, useMemo } from 'react';
 import { Post, PostContent, Platform } from '../../types';
 import { PLATFORMS } from '../../constants';
-import { Send, Bot, User, Loader2, CheckCircle, PlusCircle, History, PanelLeftClose, Trash2 } from 'lucide-react';
+import { Send, Bot, User, Loader2, CheckCircle, PlusCircle, History, PanelLeftClose, Trash2, Paperclip, Mic, MicOff, Image as ImageIcon, FileText, X } from 'lucide-react';
 import { ThreadService, ChatMessage, ContentThread } from '../../lib/api/services';
 import { useAuth } from '../../contexts/AuthContext';
 import { aiService } from '../../lib/api/services';
@@ -16,6 +16,15 @@ type Message = {
     role: 'user' | 'model' | 'system';
     content: string;
     postData?: any;
+    attachments?: Array<{
+        type: 'image' | 'file';
+        name: string;
+        url: string;
+        size?: number;
+    }>;
+    generatedImage?: string; // AI-generated image URL
+    generatedVideo?: string; // AI-generated video URL
+    isGeneratingMedia?: boolean; // Loading state for media generation
 };
 
 const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCreated }) => {
@@ -33,6 +42,12 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
     const [isSavingThread, setIsSavingThread] = useState(false);
+    const [isCreatingNewChat, setIsCreatingNewChat] = useState(false);
+    const [attachedFiles, setAttachedFiles] = useState<Array<{type: 'image' | 'file', name: string, url: string, size: number}>>([]);
+    const [isRecording, setIsRecording] = useState(false);
+    const [isListening, setIsListening] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const recognitionRef = useRef<any>(null);
     const hasLoadedHistory = useRef(false);
     
     // Use refs to prevent unnecessary re-runs of effects when auth context updates
@@ -40,26 +55,26 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     const userRef = useRef(user);
     const isInitializedRef = useRef(false);
     
-    // Update refs when values change
+    // Update refs when values change (optimized to prevent re-renders)
     useEffect(() => {
         const workspaceChanged = workspaceIdRef.current !== workspaceId;
         const userChanged = userRef.current !== user;
         
-        if (workspaceChanged || userChanged) {
-            console.log('[ContentStrategist] Auth values updated', {
-                workspaceChanged,
-                userChanged,
-                isInitialized: isInitializedRef.current
-            });
+        // Only update if values actually changed
+        if (workspaceChanged) {
+            workspaceIdRef.current = workspaceId;
+            console.log('[ContentStrategist] Workspace updated:', workspaceId);
         }
         
-        workspaceIdRef.current = workspaceId;
-        userRef.current = user;
+        if (userChanged) {
+            userRef.current = user;
+            console.log('[ContentStrategist] User updated');
+        }
         
         // Mark as initialized once we have both values
         if (workspaceId && user && !isInitializedRef.current) {
             isInitializedRef.current = true;
-            console.log('[ContentStrategist] Component initialized with workspace:', workspaceId);
+            console.log('[ContentStrategist] Component initialized');
         }
     }, [workspaceId, user]);
 
@@ -130,14 +145,23 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         };
     }, [messages.length]);
 
+    // Scroll to bottom when messages change (debounced to avoid excessive scrolling)
     useEffect(() => {
-        chatContainerRef.current?.scrollTo({ top: chatContainerRef.current.scrollHeight, behavior: 'smooth' });
-    }, [messages]);
+        const scrollTimer = setTimeout(() => {
+            if (chatContainerRef.current && !isLoading) {
+                chatContainerRef.current.scrollTo({ 
+                    top: chatContainerRef.current.scrollHeight, 
+                    behavior: 'smooth' 
+                });
+            }
+        }, 100);
+        return () => clearTimeout(scrollTimer);
+    }, [messages.length, isLoading]);
 
     // Auto-save messages to database after each exchange with longer debounce
     useEffect(() => {
-        // Skip save if no messages or viewing history
-        if (!currentThreadId || messages.length === 0 || activeThreadId !== 'new') {
+        // Skip save if no messages, viewing history, loading, or creating new chat
+        if (!currentThreadId || messages.length === 0 || activeThreadId !== 'new' || isLoading || isCreatingNewChat) {
             return;
         }
         
@@ -160,16 +184,17 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                     }));
 
                 await ThreadService.updateMessages(currentThreadId, dbMessages);
+                console.log('[ContentStrategist] Auto-saved messages');
             } catch (e) {
                 console.error("Error saving messages to database", e);
             }
         };
 
-        // Increase debounce to 5 seconds to reduce frequent saves
-        const saveTimer = setTimeout(saveMessages, 5000);
+        // Increase debounce to 10 seconds to reduce frequent saves and re-renders
+        const saveTimer = setTimeout(saveMessages, 10000);
         return () => clearTimeout(saveTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [messages, currentThreadId, activeThreadId]);
+    }, [messages.length, currentThreadId, activeThreadId]);
 
     const saveCurrentChat = useCallback(async () => {
         const currentWorkspaceId = workspaceIdRef.current;
@@ -208,30 +233,41 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     }, [messages]);
 
     const startNewChat = useCallback(async (isInitialLoad = false) => {
-        if (!isInitialLoad && activeThreadId === 'new') {
-            await saveCurrentChat();
-        }
-
-        setMessages([
-            { role: 'model', content: "Hello! I'm Aamir your AI Content Strategist. What brilliant idea or product are we working on today?" }
-        ]);
-        setActiveThreadId('new');
-
-        // Create a new thread in database for this chat session
-        const currentWorkspaceId = workspaceIdRef.current;
-        const currentUser = userRef.current;
-        
-        if (currentWorkspaceId && currentUser && !isInitialLoad) {
-            try {
-                const newThread = await ThreadService.createThread('New Chat');
-                setCurrentThreadId(newThread.id);
-            } catch (e) {
-                console.error("Error creating thread", e);
+        try {
+            setIsCreatingNewChat(true);
+            
+            // Save current chat if it has meaningful content
+            if (!isInitialLoad && activeThreadId === 'new' && messages.length > 1) {
+                await saveCurrentChat();
             }
-        }
 
-        setError(null);
-    }, [activeThreadId, saveCurrentChat]);
+            // Reset to initial state
+            setMessages([
+                { role: 'model', content: "Hello! I'm Aamir your AI Content Strategist. What brilliant idea or product are we working on today?" }
+            ]);
+            setActiveThreadId('new');
+            setCurrentThreadId(null);
+            setError(null);
+
+            // Create a new thread in database for this chat session
+            const currentWorkspaceId = workspaceIdRef.current;
+            const currentUser = userRef.current;
+            
+            if (currentWorkspaceId && currentUser && !isInitialLoad) {
+                try {
+                    const newThread = await ThreadService.createThread('New Chat');
+                    setCurrentThreadId(newThread.id);
+                    console.log('[ContentStrategist] New thread created:', newThread.id);
+                } catch (e) {
+                    console.error("Error creating thread", e);
+                    // Don't block the UI if thread creation fails
+                    setError("Note: Thread creation failed, but you can still chat");
+                }
+            }
+        } finally {
+            setIsCreatingNewChat(false);
+        }
+    }, [activeThreadId, messages.length, saveCurrentChat]);
 
     const handleSelectThread = useCallback(async (thread: ContentThread) => {
         if (activeThreadId === 'new') {
@@ -337,13 +373,115 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         })();
     }, [onPostCreated, saveCurrentChat, startNewChat]);
 
+    // Initialize speech recognition
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+            if (SpeechRecognition) {
+                recognitionRef.current = new SpeechRecognition();
+                recognitionRef.current.continuous = true;
+                recognitionRef.current.interimResults = true;
+                recognitionRef.current.lang = 'en-US';
+
+                recognitionRef.current.onresult = (event: any) => {
+                    const transcript = Array.from(event.results)
+                        .map((result: any) => result[0])
+                        .map((result: any) => result.transcript)
+                        .join('');
+                    setUserInput(transcript);
+                };
+
+                recognitionRef.current.onerror = (event: any) => {
+                    console.error('Speech recognition error:', event.error);
+                    setIsListening(false);
+                    setIsRecording(false);
+                };
+
+                recognitionRef.current.onend = () => {
+                    setIsListening(false);
+                    setIsRecording(false);
+                };
+            }
+        }
+
+        return () => {
+            if (recognitionRef.current) {
+                recognitionRef.current.stop();
+            }
+        };
+    }, []);
+
+    const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+
+        Array.from(files).forEach(file => {
+            // Check file size (max 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+                setError(`File ${file.name} is too large. Maximum size is 10MB.`);
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const url = event.target?.result as string;
+                const fileType = file.type.startsWith('image/') ? 'image' : 'file';
+                
+                setAttachedFiles(prev => [...prev, {
+                    type: fileType,
+                    name: file.name,
+                    url: url,
+                    size: file.size
+                }]);
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // Reset input
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    }, []);
+
+    const removeAttachment = useCallback((index: number) => {
+        setAttachedFiles(prev => prev.filter((_, i) => i !== index));
+    }, []);
+
+    const toggleVoiceInput = useCallback(() => {
+        if (!recognitionRef.current) {
+            setError('Voice input is not supported in your browser.');
+            return;
+        }
+
+        if (isListening) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+            setIsRecording(false);
+        } else {
+            try {
+                recognitionRef.current.start();
+                setIsListening(true);
+                setIsRecording(true);
+                setError(null);
+            } catch (err) {
+                console.error('Failed to start voice recognition:', err);
+                setError('Failed to start voice input. Please try again.');
+            }
+        }
+    }, [isListening]);
+
     const handleSubmit = useCallback(async (e: FormEvent) => {
         e.preventDefault();
-        if (!userInput.trim() || isLoading || activeThreadId !== 'new') return;
+        if (!userInput.trim() || isLoading || activeThreadId !== 'new' || isCreatingNewChat) return;
 
-        const userMessage: Message = { role: 'user', content: userInput };
+        const userMessage: Message = { 
+            role: 'user', 
+            content: userInput,
+            attachments: attachedFiles.length > 0 ? attachedFiles : undefined
+        };
         setMessages(prev => [...prev, userMessage]);
         setUserInput('');
+        setAttachedFiles([]); // Clear attachments after sending
         setIsLoading(true);
         setError(null);
 
@@ -375,8 +513,24 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                     postData: postData,
                 }]);
             } else {
-                // Regular conversation response
-                setMessages(prev => [...prev, { role: 'model', content: aiResponse }]);
+                // Regular conversation response with optional media
+                const newMessage: Message = { 
+                    role: 'model', 
+                    content: aiResponse 
+                };
+                
+                // Check if AI response includes generated media URLs
+                if (data.generatedImage) {
+                    newMessage.generatedImage = data.generatedImage;
+                }
+                if (data.generatedVideo) {
+                    newMessage.generatedVideo = data.generatedVideo;
+                }
+                if (data.isGeneratingMedia) {
+                    newMessage.isGeneratingMedia = true;
+                }
+                
+                setMessages(prev => [...prev, newMessage]);
             }
 
         } catch (err) {
@@ -456,53 +610,127 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         }
 
         return (
-            <div className={`flex items-start gap-3 my-4 ${isUser ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-indigo-700' : 'bg-gray-600'}`}>
-                    {isUser ? <User className="w-5 h-5 text-white" /> : <Bot className="w-5 h-5 text-white" />}
+            <div className={`flex items-start gap-4 py-6 px-4 ${isUser ? 'bg-transparent' : 'bg-gray-50/50'} hover:bg-gray-50/80 transition-colors`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-gradient-to-br from-indigo-600 to-purple-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
+                    {isUser ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
                 </div>
-                <div className={`p-4 rounded-lg text-base shadow-sm ${isUser ? 'bg-indigo-700 text-white max-w-4xl' : 'bg-gray-100 text-gray-900 border border-gray-200 w-[70%]'}`}>
-                    {isModel ? renderMarkdown(msg.content) : <p className="whitespace-pre-wrap">{msg.content}</p>}
+                <div className="flex-1 space-y-2 overflow-hidden">
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-gray-900">{isUser ? 'You' : 'AI Strategist'}</span>
+                    </div>
+                    {/* User Attachments */}
+                    {msg.attachments && msg.attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-2">
+                            {msg.attachments.map((file, idx) => (
+                                <div key={idx} className="relative group">
+                                    {file.type === 'image' ? (
+                                        <img src={file.url} alt={file.name} className="max-w-xs rounded-lg border border-gray-200 shadow-sm" />
+                                    ) : (
+                                        <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-200">
+                                            <FileText className="w-4 h-4 text-gray-600" />
+                                            <span className="text-sm text-gray-700">{file.name}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    
+                    {/* AI-Generated Image */}
+                    {msg.generatedImage && (
+                        <div className="my-3">
+                            <div className="relative group max-w-lg">
+                                <img 
+                                    src={msg.generatedImage} 
+                                    alt="AI Generated" 
+                                    className="w-full rounded-xl border border-gray-200 shadow-lg"
+                                />
+                                <div className="absolute top-2 right-2 px-2 py-1 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm">
+                                    AI Generated
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* AI-Generated Video */}
+                    {msg.generatedVideo && (
+                        <div className="my-3">
+                            <div className="relative group max-w-lg">
+                                <video 
+                                    src={msg.generatedVideo} 
+                                    controls 
+                                    className="w-full rounded-xl border border-gray-200 shadow-lg"
+                                    playsInline
+                                >
+                                    Your browser does not support the video tag.
+                                </video>
+                                <div className="absolute top-2 right-2 px-2 py-1 bg-black/70 text-white text-xs rounded-lg backdrop-blur-sm">
+                                    AI Generated Video
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
+                    {/* Media Generation Loading State */}
+                    {msg.isGeneratingMedia && (
+                        <div className="my-3 p-4 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-xl border border-emerald-200">
+                            <div className="flex items-center gap-3">
+                                <Loader2 className="w-5 h-5 animate-spin text-emerald-600" />
+                                <div>
+                                    <p className="text-sm font-medium text-emerald-900">Generating media...</p>
+                                    <p className="text-xs text-emerald-700">This may take a few moments</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    <div className="text-[15px] leading-7 text-gray-800">
+                        {isModel ? renderMarkdown(msg.content) : <p className="whitespace-pre-wrap">{msg.content}</p>}
+                    </div>
                 </div>
             </div>
         );
     });
 
     return (
-        <div ref={containerRef} className="h-full flex flex-row gap-4">
+        <div ref={containerRef} className="h-full flex flex-row">
             {isHistoryVisible && (
-                <div className="w-64 bg-white rounded-xl shadow-md flex flex-col h-full border border-gray-200">
-                    <div className="p-3 border-b border-gray-200">
+                <div className="w-64 bg-gray-900 flex flex-col h-full">
+                    <div className="p-3">
                         <button
                             onClick={() => startNewChat()}
-                            className="w-full flex items-center justify-center py-2.5 px-4 shadow-md text-sm font-medium rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 transition-colors"
+                            disabled={isCreatingNewChat}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 text-sm font-medium rounded-lg text-white bg-gray-800 hover:bg-gray-700 border border-gray-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <PlusCircle className="w-5 h-5 mr-2" />
-                            New Chat
+                            {isCreatingNewChat ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <PlusCircle className="w-4 h-4" />
+                            )}
+                            {isCreatingNewChat ? 'Creating...' : 'New chat'}
                         </button>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-2">
-                        <h3 className="px-2 pb-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">History</h3>
+                    <div className="flex-1 overflow-y-auto px-2">
+                        <div className="text-xs font-semibold text-gray-400 px-3 py-2 uppercase tracking-wider">Recent</div>
                         <nav className="space-y-1">
                             {chatHistory.map(thread => (
                                 <div
                                     key={thread.id}
-                                    className={`w-full flex items-center gap-2 p-2 rounded-lg transition-all group ${
-                                        activeThreadId === thread.id ? 'bg-indigo-50 border border-indigo-200' : 'hover:bg-gray-50 border border-transparent'
+                                    className={`relative flex items-center gap-2 p-2.5 rounded-lg transition-all group ${
+                                        activeThreadId === thread.id ? 'bg-gray-800' : 'hover:bg-gray-800/50'
                                     }`}
                                 >
                                     <button
                                         onClick={() => handleSelectThread(thread)}
-                                        className="flex-1 text-left flex flex-col"
+                                        className="flex-1 text-left min-w-0"
                                     >
-                                        <p className="text-sm font-medium text-gray-900 truncate">{thread.title}</p>
-                                        <p className="text-xs text-gray-600">{new Date(thread.created_at).toLocaleDateString()}</p>
+                                        <p className="text-sm text-gray-200 truncate">{thread.title}</p>
                                     </button>
                                     <button
                                         onClick={(e) => handleDeleteThread(e, thread.id)}
-                                        className="p-1.5 rounded hover:bg-red-100 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-all"
-                                        title="Delete thread"
+                                        className="p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0"
+                                        title="Delete chat"
                                     >
-                                        <Trash2 className="w-4 h-4" />
+                                        <Trash2 className="w-3.5 h-3.5" />
                                     </button>
                                 </div>
                             ))}
@@ -511,58 +739,143 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                 </div>
             )}
 
-            <div className="flex-1 flex flex-col h-full">
-                <div className="flex justify-between items-center mb-4">
-                    <div>
-                        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                            <div className="p-2 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg">
-                                <Bot className="w-5 h-5 text-white" />
-                            </div>
-                            AI Contents Strategist
-                        </h2>
-                        <p className="text-gray-600 mt-1 text-sm">Brainstorm and create content with AI assistance</p>
-                    </div>
+            <div className="flex-1 flex flex-col h-full bg-white">
+                {/* Header */}
+                <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-white">
                     <button
                         onClick={() => setIsHistoryVisible(!isHistoryVisible)}
                         className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
-                        title={isHistoryVisible ? "Hide History" : "Show History"}
+                        title={isHistoryVisible ? "Hide sidebar" : "Show sidebar"}
                     >
-                        {isHistoryVisible ? <PanelLeftClose className="w-6 h-6 text-gray-600" /> : <History className="w-6 h-6 text-gray-600" />}
+                        {isHistoryVisible ? <PanelLeftClose className="w-5 h-5 text-gray-600" /> : <History className="w-5 h-5 text-gray-600" />}
                     </button>
+                    <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                            <Bot className="w-4 h-4 text-white" />
+                        </div>
+                        <span className="text-sm font-semibold text-gray-900">AI Content Strategist</span>
+                    </div>
+                    <div className="w-9" />
                 </div>
-                <div className="flex-grow bg-white rounded-xl shadow-md flex flex-col p-4 min-h-0 border border-gray-200">
-                    <div ref={chatContainerRef} className="flex-1 overflow-y-auto pr-2">
+
+                {/* Messages Container */}
+                <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
+                    <div className="max-w-3xl mx-auto">
                         {messages.map((msg, index) => <MessageBubble key={index} msg={msg} />)}
                         {isLoading && (
-                            <div className="flex items-start gap-3 my-4">
-                                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center flex-shrink-0">
-                                    <Bot className="w-5 h-5 text-white" />
+                            <div className="flex items-start gap-4 py-6 px-4 bg-gray-50/50">
+                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                                    <Bot className="w-4 h-4 text-white" />
                                 </div>
-                                <div className="p-4 rounded-lg bg-gray-100 border border-gray-200 flex items-center shadow-sm">
-                                    <Loader2 className="w-5 h-5 animate-spin text-indigo-600" />
+                                <div className="flex-1 space-y-2">
+                                    <span className="text-sm font-semibold text-gray-900">AI Strategist</span>
+                                    <div className="flex items-center gap-2">
+                                        <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
+                                        <span className="text-sm text-gray-600">Thinking...</span>
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </div>
-                    <div className="mt-4 border-t border-gray-200 pt-4">
-                        {error && <p className="text-red-600 text-sm text-center mb-3 bg-red-50 border border-red-200 rounded-lg p-3">{error}</p>}
-                        <form onSubmit={handleSubmit} className="flex items-center gap-3">
-                            <input
-                                type="text"
-                                value={userInput}
-                                onChange={(e) => setUserInput(e.target.value)}
-                                placeholder={activeThreadId !== 'new' ? "Viewing history (read-only)" : "Let's brainstorm some content..."}
-                                className="flex-1 bg-white border border-gray-300 rounded-full shadow-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900 p-3 px-5"
-                                disabled={isLoading || activeThreadId !== 'new'}
-                            />
-                            <button
-                                type="submit"
-                                disabled={isLoading || !userInput.trim() || activeThreadId !== 'new'}
-                                className="p-3 rounded-full text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-md"
-                            >
-                                <Send className="w-5 h-5" />
-                            </button>
+                </div>
+
+                {/* Input Area */}
+                <div className="border-t border-gray-200 bg-white">
+                    <div className="max-w-3xl mx-auto px-4 py-4">
+                        {error && (
+                            <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+                                <p className="text-sm text-red-600">{error}</p>
+                            </div>
+                        )}
+                        {/* Attached Files Preview */}
+                        {attachedFiles.length > 0 && (
+                            <div className="mb-3 flex flex-wrap gap-2">
+                                {attachedFiles.map((file, idx) => (
+                                    <div key={idx} className="relative group">
+                                        {file.type === 'image' ? (
+                                            <div className="relative">
+                                                <img src={file.url} alt={file.name} className="h-20 w-20 object-cover rounded-lg border border-gray-300" />
+                                                <button
+                                                    onClick={() => removeAttachment(idx)}
+                                                    className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                                                >
+                                                    <X className="w-3 h-3" />
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded-lg border border-gray-300">
+                                                <FileText className="w-4 h-4 text-gray-600" />
+                                                <span className="text-sm text-gray-700 max-w-[150px] truncate">{file.name}</span>
+                                                <button
+                                                    onClick={() => removeAttachment(idx)}
+                                                    className="p-0.5 hover:bg-gray-200 rounded transition-colors"
+                                                >
+                                                    <X className="w-3 h-3 text-gray-600" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        
+                        <form onSubmit={handleSubmit} className="relative">
+                            <div className="flex items-center gap-2">
+                                {/* File Upload Button */}
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    multiple
+                                    accept="image/*,.pdf,.doc,.docx,.txt"
+                                    onChange={handleFileUpload}
+                                    className="hidden"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => fileInputRef.current?.click()}
+                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                    className="p-2.5 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    title="Attach files"
+                                >
+                                    <Paperclip className="w-5 h-5" />
+                                </button>
+                                
+                                {/* Voice Input Button */}
+                                <button
+                                    type="button"
+                                    onClick={toggleVoiceInput}
+                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                    className={`p-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                        isRecording 
+                                            ? 'bg-red-100 text-red-600 hover:bg-red-200' 
+                                            : 'text-gray-600 hover:bg-gray-100'
+                                    }`}
+                                    title={isRecording ? "Stop recording" : "Voice input"}
+                                >
+                                    {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                                </button>
+                                
+                                {/* Text Input */}
+                                <input
+                                    type="text"
+                                    value={userInput}
+                                    onChange={(e) => setUserInput(e.target.value)}
+                                    placeholder={activeThreadId !== 'new' ? "Viewing history (read-only)" : isCreatingNewChat ? "Creating new chat..." : isRecording ? "Listening..." : "Message AI Strategist..."}
+                                    className="flex-1 bg-white border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-gray-900 py-3 px-4 text-[15px] disabled:bg-gray-50 disabled:text-gray-500"
+                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                />
+                                
+                                {/* Send Button */}
+                                <button
+                                    type="submit"
+                                    disabled={isLoading || !userInput.trim() || activeThreadId !== 'new' || isCreatingNewChat}
+                                    className="p-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <Send className="w-5 h-5" />
+                                </button>
+                            </div>
                         </form>
+                        <p className="text-xs text-gray-500 text-center mt-2">AI can make mistakes. Consider checking important information.</p>
                     </div>
                 </div>
             </div>
