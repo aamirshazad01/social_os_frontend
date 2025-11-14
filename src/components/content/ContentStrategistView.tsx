@@ -623,14 +623,11 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         }
 
         return (
-            <div className={`flex items-start gap-4 py-4 px-2 ${isUser ? 'flex-row-reverse' : ''}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-gradient-to-br from-indigo-600 to-purple-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
+            <div className={`flex items-start gap-3 py-4 px-2 ${isUser ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-gray-800' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
                     {isUser ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
                 </div>
                 <div className={`space-y-2 overflow-hidden ${isUser ? 'max-w-[70%]' : 'flex-1'}`}>
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-gray-900">{isUser ? 'You' : 'AI Strategist'}</span>
-                    </div>
                     {/* User Attachments */}
                     {msg.attachments && msg.attachments.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-2">
@@ -696,7 +693,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                             </div>
                         </div>
                     )}
-                    <div className={`text-[15px] leading-7 ${isUser ? 'bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-sm' : 'text-gray-800'}`}>
+                    <div className={`text-[15px] leading-7 ${isUser ? 'bg-gray-100 text-gray-900 p-3.5 rounded-2xl rounded-tr-md border border-gray-200' : 'text-gray-800'}`}>
                         {isModel ? renderMarkdown(msg.content) : <p className="whitespace-pre-wrap">{msg.content}</p>}
                     </div>
                 </div>
@@ -763,7 +760,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                         {isHistoryVisible ? <PanelLeftClose className="w-5 h-5 text-gray-600" /> : <History className="w-5 h-5 text-gray-600" />}
                     </button>
                     <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+                        <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shadow-sm">
                             <Bot className="w-4 h-4 text-white" />
                         </div>
                         <span className="text-sm font-semibold text-gray-900">AI Content Strategist</span>
@@ -776,12 +773,11 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                     <div className="max-w-5xl mx-auto">
                         {messages.map((msg, index) => <MessageBubble key={index} msg={msg} />)}
                         {isLoading && (
-                            <div className="flex items-start gap-4 py-6 px-4 bg-gray-50/50">
-                                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                            <div className="flex items-start gap-3 py-4 px-2">
+                                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center flex-shrink-0">
                                     <Bot className="w-4 h-4 text-white" />
                                 </div>
                                 <div className="flex-1 space-y-2">
-                                    <span className="text-sm font-semibold text-gray-900">AI Strategist</span>
                                     <div className="flex items-center gap-2">
                                         <Loader2 className="w-4 h-4 animate-spin text-gray-600" />
                                         <span className="text-sm text-gray-600">Thinking...</span>
