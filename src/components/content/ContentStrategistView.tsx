@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect, FormEvent, useCallback, useMemo } from 'react';
 import { Post, PostContent, Platform } from '../../types';
 import { PLATFORMS } from '../../constants';
-import { Send, Bot, User, Loader2, CheckCircle, PlusCircle, History, PanelLeftClose, Trash2, Paperclip, Mic, MicOff, Image as ImageIcon, FileText, X } from 'lucide-react';
+import { Send, Bot, User, Loader2, CheckCircle, PlusCircle, History, PanelLeftClose, Trash2, Paperclip, Mic, MicOff, Image as ImageIcon, FileText, X, Sparkles, Lightbulb, BookOpen, ChevronRight } from 'lucide-react';
 import { ThreadService, ChatMessage, ContentThread } from '../../lib/api/services';
 import { useAuth } from '../../contexts/AuthContext';
 import { aiService } from '../../lib/api/services';
@@ -46,14 +46,27 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     const [attachedFiles, setAttachedFiles] = useState<Array<{type: 'image' | 'file', name: string, url: string, size: number}>>([]);
     const [isRecording, setIsRecording] = useState(false);
     const [isListening, setIsListening] = useState(false);
+    const [showUploadMenu, setShowUploadMenu] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
     const recognitionRef = useRef<any>(null);
     const hasLoadedHistory = useRef(false);
+    const isMountedRef = useRef(false);
     
     // Use refs to prevent unnecessary re-runs of effects when auth context updates
     const workspaceIdRef = useRef(workspaceId);
     const userRef = useRef(user);
     const isInitializedRef = useRef(false);
+    
+    // Mark component as mounted on first render
+    useEffect(() => {
+        isMountedRef.current = true;
+        console.log('[ContentStrategist] Component mounted');
+        return () => {
+            isMountedRef.current = false;
+            console.log('[ContentStrategist] Component unmounted');
+        };
+    }, []);
     
     // Update refs when values change (optimized to prevent re-renders)
     useEffect(() => {
@@ -107,61 +120,33 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
     const isVisibleRef = useRef(true);
     const containerRef = useRef<HTMLDivElement>(null);
     
+    // Simplified visibility tracking - no re-renders
     useEffect(() => {
         const handleVisibilityChange = () => {
-            if (document.hidden) {
-                // Tab is hidden - just mark it
-                isVisibleRef.current = false;
-                console.log('[ContentStrategist] Tab hidden - preserving state');
-            } else {
-                // Tab is visible again - restore without reload
-                isVisibleRef.current = true;
-                console.log('[ContentStrategist] Tab visible - state preserved');
-                // Force scroll to bottom to show latest message
-                setTimeout(() => {
-                    chatContainerRef.current?.scrollTo({ 
-                        top: chatContainerRef.current.scrollHeight, 
-                        behavior: 'smooth' 
-                    });
-                }, 100);
-            }
-        };
-
-        // Prevent page reload on visibility change
-        const preventReload = (e: BeforeUnloadEvent) => {
-            if (messages.length > 1 && !document.hidden) {
-                // Only warn if there are unsaved messages and tab is visible
-                e.preventDefault();
-                e.returnValue = '';
-            }
+            isVisibleRef.current = !document.hidden;
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('beforeunload', preventReload);
-        
-        return () => {
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('beforeunload', preventReload);
-        };
-    }, [messages.length]);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
 
-    // Scroll to bottom when messages change (debounced to avoid excessive scrolling)
+    // Scroll to bottom when messages change (optimized)
     useEffect(() => {
-        const scrollTimer = setTimeout(() => {
-            if (chatContainerRef.current && !isLoading) {
-                chatContainerRef.current.scrollTo({ 
+        if (!isLoading && chatContainerRef.current) {
+            const scrollTimer = setTimeout(() => {
+                chatContainerRef.current?.scrollTo({ 
                     top: chatContainerRef.current.scrollHeight, 
                     behavior: 'smooth' 
                 });
-            }
-        }, 100);
-        return () => clearTimeout(scrollTimer);
+            }, 150);
+            return () => clearTimeout(scrollTimer);
+        }
     }, [messages.length, isLoading]);
 
     // Auto-save messages to database after each exchange with longer debounce
     useEffect(() => {
-        // Skip save if no messages, viewing history, loading, or creating new chat
-        if (!currentThreadId || messages.length === 0 || activeThreadId !== 'new' || isLoading || isCreatingNewChat) {
+        // Skip save if component not mounted, no messages, viewing history, loading, or creating new chat
+        if (!isMountedRef.current || !currentThreadId || messages.length === 0 || activeThreadId !== 'new' || isLoading || isCreatingNewChat) {
             return;
         }
         
@@ -174,6 +159,9 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         }
 
         const saveMessages = async () => {
+            // Double-check component is still mounted before saving
+            if (!isMountedRef.current) return;
+            
             try {
                 const dbMessages: ChatMessage[] = messages
                     .filter(m => m.role !== 'system') // Don't save system messages to DB
@@ -190,8 +178,8 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
             }
         };
 
-        // Increase debounce to 10 seconds to reduce frequent saves and re-renders
-        const saveTimer = setTimeout(saveMessages, 10000);
+        // Increase debounce to 15 seconds to reduce frequent saves and re-renders
+        const saveTimer = setTimeout(saveMessages, 15000);
         return () => clearTimeout(saveTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [messages.length, currentThreadId, activeThreadId]);
@@ -411,7 +399,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         };
     }, []);
 
-    const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleFileUpload = useCallback((e: React.ChangeEvent<HTMLInputElement>, type: 'image' | 'file') => {
         const files = e.target.files;
         if (!files || files.length === 0) return;
 
@@ -437,10 +425,10 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
             reader.readAsDataURL(file);
         });
 
-        // Reset input
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
+        // Reset inputs and close menu
+        if (fileInputRef.current) fileInputRef.current.value = '';
+        if (imageInputRef.current) imageInputRef.current.value = '';
+        setShowUploadMenu(false);
     }, []);
 
     const removeAttachment = useCallback((index: number) => {
@@ -469,6 +457,19 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
             }
         }
     }, [isListening]);
+
+    // Close upload menu when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (showUploadMenu && !target.closest('.upload-menu-container')) {
+                setShowUploadMenu(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showUploadMenu]);
 
     const handleSubmit = useCallback(async (e: FormEvent) => {
         e.preventDefault();
@@ -610,11 +611,11 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
         }
 
         return (
-            <div className={`flex items-start gap-4 py-6 px-4 ${isUser ? 'bg-transparent' : 'bg-gray-50/50'} hover:bg-gray-50/80 transition-colors`}>
+            <div className={`flex items-start gap-4 py-4 px-2 ${isUser ? 'flex-row-reverse' : ''}`}>
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-gradient-to-br from-indigo-600 to-purple-600' : 'bg-gradient-to-br from-emerald-500 to-teal-600'}`}>
                     {isUser ? <User className="w-4 h-4 text-white" /> : <Bot className="w-4 h-4 text-white" />}
                 </div>
-                <div className="flex-1 space-y-2 overflow-hidden">
+                <div className={`space-y-2 overflow-hidden ${isUser ? 'max-w-[70%]' : 'flex-1'}`}>
                     <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-gray-900">{isUser ? 'You' : 'AI Strategist'}</span>
                     </div>
@@ -683,7 +684,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                             </div>
                         </div>
                     )}
-                    <div className="text-[15px] leading-7 text-gray-800">
+                    <div className={`text-[15px] leading-7 ${isUser ? 'bg-indigo-600 text-white p-4 rounded-2xl rounded-tr-sm' : 'text-gray-800'}`}>
                         {isModel ? renderMarkdown(msg.content) : <p className="whitespace-pre-wrap">{msg.content}</p>}
                     </div>
                 </div>
@@ -760,7 +761,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
 
                 {/* Messages Container */}
                 <div ref={chatContainerRef} className="flex-1 overflow-y-auto">
-                    <div className="max-w-3xl mx-auto">
+                    <div className="max-w-5xl mx-auto">
                         {messages.map((msg, index) => <MessageBubble key={index} msg={msg} />)}
                         {isLoading && (
                             <div className="flex items-start gap-4 py-6 px-4 bg-gray-50/50">
@@ -781,7 +782,7 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
 
                 {/* Input Area */}
                 <div className="border-t border-gray-200 bg-white">
-                    <div className="max-w-3xl mx-auto px-4 py-4">
+                    <div className="max-w-5xl mx-auto px-4 py-4">
                         {error && (
                             <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
                                 <p className="text-sm text-red-600">{error}</p>
@@ -820,40 +821,89 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                         )}
                         
                         <form onSubmit={handleSubmit} className="relative">
-                            <div className="flex items-center gap-2">
-                                {/* File Upload Button */}
+                            <div className="flex items-center gap-2 bg-gray-100 rounded-3xl px-2 py-2 shadow-sm border border-gray-200">
+                                {/* Hidden File Inputs */}
+                                <input
+                                    ref={imageInputRef}
+                                    type="file"
+                                    multiple
+                                    accept="image/*"
+                                    onChange={(e) => handleFileUpload(e, 'image')}
+                                    className="hidden"
+                                />
                                 <input
                                     ref={fileInputRef}
                                     type="file"
                                     multiple
-                                    accept="image/*,.pdf,.doc,.docx,.txt"
-                                    onChange={handleFileUpload}
+                                    accept=".pdf,.doc,.docx,.txt,.csv,.xlsx"
+                                    onChange={(e) => handleFileUpload(e, 'file')}
                                     className="hidden"
                                 />
-                                <button
-                                    type="button"
-                                    onClick={() => fileInputRef.current?.click()}
-                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
-                                    className="p-2.5 rounded-lg text-gray-600 hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    title="Attach files"
-                                >
-                                    <Paperclip className="w-5 h-5" />
-                                </button>
                                 
-                                {/* Voice Input Button */}
-                                <button
-                                    type="button"
-                                    onClick={toggleVoiceInput}
-                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
-                                    className={`p-2.5 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
-                                        isRecording 
-                                            ? 'bg-red-100 text-red-600 hover:bg-red-200' 
-                                            : 'text-gray-600 hover:bg-gray-100'
-                                    }`}
-                                    title={isRecording ? "Stop recording" : "Voice input"}
-                                >
-                                    {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
-                                </button>
+                                {/* Plus Button with Dropdown */}
+                                <div className="relative upload-menu-container">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowUploadMenu(!showUploadMenu)}
+                                        disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                        className="p-2 rounded-full text-gray-600 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        title="Attach files"
+                                    >
+                                        <PlusCircle className="w-5 h-5" />
+                                    </button>
+                                    
+                                    {/* Upload Menu Dropdown - ChatGPT Style */}
+                                    {showUploadMenu && (
+                                        <div className="absolute bottom-full left-0 mb-2 bg-white rounded-2xl shadow-xl border border-gray-200 py-2 min-w-[220px] z-10">
+                                            <button
+                                                type="button"
+                                                onClick={() => imageInputRef.current?.click()}
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                                                    <Paperclip className="w-4 h-4 text-gray-700" />
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-900">Add photos & files</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => imageInputRef.current?.click()}
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                                                    <Sparkles className="w-4 h-4 text-gray-700" />
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-900">Create image</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                                                    <Lightbulb className="w-4 h-4 text-gray-700" />
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-900">Thinking</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                                            >
+                                                <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center group-hover:bg-gray-200 transition-colors">
+                                                    <BookOpen className="w-4 h-4 text-gray-700" />
+                                                </div>
+                                                <span className="text-sm font-medium text-gray-900">Study and learn</span>
+                                            </button>
+                                            <div className="border-t border-gray-100 my-1"></div>
+                                            <button
+                                                type="button"
+                                                className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left group"
+                                            >
+                                                <span className="text-sm font-medium text-gray-900">More</span>
+                                                <ChevronRight className="w-4 h-4 text-gray-500" />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                                 
                                 {/* Text Input */}
                                 <input
@@ -861,18 +911,35 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                                     value={userInput}
                                     onChange={(e) => setUserInput(e.target.value)}
                                     placeholder={activeThreadId !== 'new' ? "Viewing history (read-only)" : isCreatingNewChat ? "Creating new chat..." : isRecording ? "Listening..." : "Message AI Strategist..."}
-                                    className="flex-1 bg-white border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-gray-900 py-3 px-4 text-[15px] disabled:bg-gray-50 disabled:text-gray-500"
+                                    className="flex-1 bg-transparent border-none focus:outline-none focus:ring-0 text-gray-900 text-[15px] placeholder:text-gray-500 disabled:text-gray-400"
                                     disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
                                 />
                                 
-                                {/* Send Button */}
+                                {/* Voice Input Button */}
                                 <button
-                                    type="submit"
-                                    disabled={isLoading || !userInput.trim() || activeThreadId !== 'new' || isCreatingNewChat}
-                                    className="p-2.5 rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                                    type="button"
+                                    onClick={toggleVoiceInput}
+                                    disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                    className={`p-2 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                                        isRecording 
+                                            ? 'bg-red-100 text-red-600 hover:bg-red-200' 
+                                            : 'text-gray-600 hover:bg-gray-200'
+                                    }`}
+                                    title={isRecording ? "Stop recording" : "Voice input"}
                                 >
-                                    <Send className="w-5 h-5" />
+                                    {isRecording ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
                                 </button>
+                                
+                                {/* Send Button - Only show when there's text */}
+                                {userInput.trim() && (
+                                    <button
+                                        type="submit"
+                                        disabled={isLoading || activeThreadId !== 'new' || isCreatingNewChat}
+                                        className="p-2 rounded-full text-white bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        <Send className="w-4 h-4" />
+                                    </button>
+                                )}
                             </div>
                         </form>
                         <p className="text-xs text-gray-500 text-center mt-2">AI can make mistakes. Consider checking important information.</p>
