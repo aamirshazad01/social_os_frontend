@@ -534,14 +534,26 @@ const ContentStrategistView: React.FC<ContentStrategistViewProps> = ({ onPostCre
                 setMessages(prev => [...prev, newMessage]);
             }
 
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            setError(err instanceof Error ? err.message : 'An unexpected error occurred.');
-            setMessages(prev => [...prev, { role: 'system', content: 'Sorry, I ran into a problem. Please try again.'}]);
+            const errorMessage = err instanceof Error ? err.message : 'An unexpected error occurred.';
+            
+            // Check for specific error types
+            let userFriendlyMessage = 'Sorry, I ran into a problem. Please try again.';
+            if (err.code === 'ECONNABORTED' || errorMessage.includes('timeout')) {
+                userFriendlyMessage = '⚠️ Request timed out. The server might be starting up. Please try again in a moment.';
+            } else if (errorMessage.includes('rate limit') || errorMessage.includes('quota')) {
+                userFriendlyMessage = '⚠️ API rate limit reached. Please wait a moment and try again.';
+            } else if (errorMessage.includes('502') || errorMessage.includes('503') || err.code === 'ERR_NETWORK') {
+                userFriendlyMessage = '⚠️ Service temporarily unavailable. Please try again in a few seconds.';
+            }
+            
+            setError(errorMessage);
+            setMessages(prev => [...prev, { role: 'system', content: userFriendlyMessage }]);
         } finally {
             setIsLoading(false);
         }
-    }, [userInput, isLoading, messages, activeThreadId, handleCreatePost]);
+    }, [userInput, isLoading, messages, activeThreadId, attachedFiles, isCreatingNewChat]);
     
     const renderMarkdown = (text: string) => {
         const lines = text.split('\n');

@@ -24,7 +24,12 @@ export default function AuthPage() {
         // Sign in
         const { error } = await signIn(email, password)
         if (error) {
-          setError(error.message)
+          // Enhanced error message for timeout
+          if (error.message.includes('timed out') || error.message.includes('timeout')) {
+            setError('⏱️ ' + error.message + ' This usually takes 10-30 seconds on first login.')
+          } else {
+            setError(error.message)
+          }
         }
       } else {
         // Sign up
@@ -276,6 +281,15 @@ export default function AuthPage() {
                   )}
                 </span>
               </button>
+
+              {/* Loading helper message */}
+              {loading && isLogin && (
+                <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                  <p className="text-xs text-blue-700 text-center">
+                    🚀 First login may take 10-30 seconds while the server starts up
+                  </p>
+                </div>
+              )}
             </form>
 
             
